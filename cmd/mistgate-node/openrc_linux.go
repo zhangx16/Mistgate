@@ -48,6 +48,7 @@ respawn_period=60
 output_logger="logger -t mistgate-node"
 error_logger="logger -t mistgate-node"
 export GOMEMLIMIT=%dMiB
+export MISTGATE_SERVICE_MANAGER=openrc
 # Unit generation is deliberately absent: the systemd update/refresh contract
 # is not available under OpenRC. Update this custom agent manually.
 umask 077

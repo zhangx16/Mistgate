@@ -3,6 +3,8 @@
 package main
 
 import (
+	"github.com/mistgate/mistgate/internal/buildinfo"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,5 +69,16 @@ func TestOpenRCContainerMemoryBudget(t *testing.T) {
 		if ram != tc.want {
 			t.Fatalf("budget %q: %d, want %d", tc.raw, ram, tc.want)
 		}
+	}
+}
+
+func TestOpenRCDoesNotAdvertiseOfficialSelfUpdate(t *testing.T) {
+	old := buildinfo.ReleaseKey
+	buildinfo.ReleaseKey = "6ylEpIbbde2c7e7FcaC/Wc5DAmHfOHsPsOqiB8HaU3c="
+	t.Cleanup(func() { buildinfo.ReleaseKey = old })
+	t.Setenv("MISTGATE_SERVICE_MANAGER", "openrc")
+	u := newUpdater(t.TempDir(), slog.New(slog.DiscardHandler))
+	if caps := u.Capabilities(); len(caps) != 0 {
+		t.Fatalf("OpenRC advertises unsafe official updates: %v", caps)
 	}
 }

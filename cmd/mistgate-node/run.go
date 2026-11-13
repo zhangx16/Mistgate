@@ -80,6 +80,12 @@ func newUpdater(stateDir string, log *slog.Logger) *update.Updater {
 	if err != nil && !errors.Is(err, buildinfo.ErrUnsignedBuild) {
 		log.Error("release key in this build is unusable; self-update is off", "err", err)
 	}
+	// Official updates do not carry this fork's OpenRC support. Do not advertise
+	// or accept them from an OpenRC service, even though root can write the binary.
+	if os.Getenv("MISTGATE_SERVICE_MANAGER") == "openrc" {
+		key = nil
+		log.Info("self-update disabled for the custom OpenRC agent; update manually")
+	}
 	gen := unitGen()
 	if key != nil && gen < 2 {
 		log.Info("self-update is available only after `mistgate-node install` refreshes the systemd unit", "unit_gen", gen)
