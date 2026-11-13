@@ -294,7 +294,7 @@ func (k *core) newProvision() (*nodeprovision.Service, error) {
 		binaries = c.NodeBinaries
 	}
 	provCfg := nodeprovision.Config{
-		StepUp: k.authSvc.RequireStepUp, Nodes: k.fl, Binaries: binaries, SSH: c.SSHClient,
+		StepUp: k.authSvc.RequireStepUp, Nodes: k.fl, Binaries: binaries, AlpineBinaries: c.AlpineNodeBinaries, SSH: c.SSHClient,
 		PanelAddr: c.PanelAddr, LinkURL: provisionLinkURL(k.edge, k.in), AgentSNI: k.in.AgentSNI, Log: k.log,
 	}
 	if c.ProvisionKick != nil {

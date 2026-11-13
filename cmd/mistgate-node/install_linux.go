@@ -74,6 +74,9 @@ func install(stateDir, bin string, start bool) error {
 	if !agent.IsEnrolled(stateDir) {
 		return fmt.Errorf("%s holds no identity: run `mistgate-node enroll` first", stateDir)
 	}
+	if isOpenRC() {
+		return installOpenRC(stateDir, bin, start)
+	}
 	ram := hostctl.New(slog.New(slog.DiscardHandler)).Facts(context.Background()).RAMTotal
 	unit, err := renderUnit(bin, stateDir, ram)
 	if err != nil {

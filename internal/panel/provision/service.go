@@ -54,11 +54,12 @@ type BinarySource interface {
 
 // Config contains the services needed for durable SSH provisioning.
 type Config struct {
-	StepUp    func(context.Context) error
-	Nodes     NodeManager
-	Binaries  BinarySource
-	PanelAddr string
-	AgentSNI  string
+	StepUp         func(context.Context) error
+	Nodes          NodeManager
+	Binaries       BinarySource
+	AlpineBinaries BinarySource
+	PanelAddr      string
+	AgentSNI       string
 	// LinkURL (wss://host/<secret-prefix>/) makes the node enrol over the panel's public link instead of the mTLS
 	// endpoint (--link-url, no --panel or --sni), and its host:port is what the node's reachability probe dials. Set by
 	// the edge edition only; PanelAddr is then unused. With neither, installs say panel_address_not_configured.
@@ -234,7 +235,7 @@ func (s *Service) CheckSSH(ctx context.Context, req *connect.Request[adminv1.Che
 	if err != nil {
 		return nil, preflightConnectError(err)
 	}
-	if _, code := supportedPreflight(remote.facts); code != "" {
+	if _, code := supportedPreflight(remote.facts, remote.openrc); code != "" {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New(code))
 	}
 	return connect.NewResponse(&adminv1.CheckSSHResponse{Preflight: remote.facts}), nil

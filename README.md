@@ -25,6 +25,9 @@ Hysteria2, VLESS and AmneziaWG. Two Go binaries, SQLite and systemd.</p>
 
 ## What it does
 
+> This fork includes Alpine Linux 3.20+ node support using OpenRC (amd64/arm64). See [Alpine support](ALPINE.md) for setup, validation and limitations. The panel installer still requires systemd.
+
+
 You put the panel on one server and add your VPN servers to it as nodes. Each person gets one subscription link, and their app picks up every server they may use. The panel keeps the nodes configured and checks them.
 
 - Add a node from the browser by its IP with the panel's own SSH key (added once at your hoster) or the root password. The panel pins the SSH host key, checks the server, opens the ports in an active UFW or firewalld and installs the signed agent; the node's card changes the password and manages the server's SSH keys. A one-time install command works too. [Add a node](docs/en/getting-started/add-node.md)

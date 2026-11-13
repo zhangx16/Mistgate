@@ -24,7 +24,7 @@ const remotePreflightScript = `set -eu
 if [ "$(id -u)" -ne 0 ]; then exit 10; fi
 if [ ! -r /etc/os-release ]; then exit 11; fi
 . /etc/os-release
-cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf 0)"
+cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || awk '/^processor[[:space:]]*:/ {n++} END {print n+0}' /proc/cpuinfo)"
 memory_kb="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo)"
 disk_kb="$(df -Pk /root | awk 'NR == 2 {print $4}')"
 if [ -f /var/lib/mistgate-node/identity.pem ]; then
@@ -35,6 +35,9 @@ else
   node_id=""
 fi
 if [ -x /bin/systemctl ] || [ -x /usr/bin/systemctl ]; then systemd=yes; else systemd=no; fi
+openrc=no
+if [ "${ID:-}" = alpine ] && [ -x /sbin/openrc-run ] && command -v rc-service >/dev/null 2>&1 && command -v supervise-daemon >/dev/null 2>&1; then openrc=yes; fi
+printf 'openrc=%s\n' "$openrc"
 printf 'distribution=%s\n' "${ID:-unknown}"
 printf 'version=%s\n' "${VERSION_ID:-unknown}"
 printf 'kernel=%s\n' "$(uname -r)"
@@ -90,6 +93,7 @@ func (e preflightFailure) Error() string { return string(e) }
 type remotePreflight struct {
 	facts  *adminv1.NodePreflight
 	nodeID string
+	openrc bool
 }
 
 var nodeIDPattern = regexp.MustCompile(`^nod_[a-z2-7]{26}$`)
@@ -249,13 +253,17 @@ func (s *Service) runJob(ctx context.Context, job store.NodeProvisionJob) {
 		s.failJob(ctx, job, "node_identity_unreadable")
 		return
 	}
-	arch, code := supportedPreflight(remote.facts)
+	arch, code := supportedPreflight(remote.facts, remote.openrc)
 	if code != "" {
 		s.failJob(ctx, job, code)
 		return
 	}
 
-	binary, size, digest, err := s.cfg.Binaries.OpenNodeBinary(ctx, "linux", arch)
+	source := s.cfg.Binaries
+	if remote.facts.Distribution == "alpine" && s.cfg.AlpineBinaries != nil {
+		source = s.cfg.AlpineBinaries
+	}
+	binary, size, digest, err := source.OpenNodeBinary(ctx, "linux", arch)
 	if err != nil || binary == nil {
 		s.failJob(ctx, job, "agent_bundle_unavailable")
 		return
@@ -317,6 +325,12 @@ func (s *Service) runJob(ctx context.Context, job store.NodeProvisionJob) {
 	}
 	if !s.mayContinue(ctx, &job) {
 		return
+	}
+	if remote.facts.Distribution == "alpine" {
+		if err := runSSH(ctx, conn, "apk add --no-cache ca-certificates iproute2 nftables", nil, 2*time.Minute); err != nil {
+			s.failJob(ctx, job, "agent_install_failed")
+			return
+		}
 	}
 	if err := prepareHostFirewall(ctx, conn, job.SSHPort); err != nil {
 		if ctx.Err() == nil {
@@ -595,7 +609,7 @@ func parsePreflightOutput(output []byte) (*remotePreflight, error) {
 	allowed := map[string]struct{}{
 		"distribution": {}, "version": {}, "kernel": {}, "architecture": {}, "cpu_count": {},
 		"memory_bytes": {}, "disk_available_bytes": {}, "systemd": {}, "already_enrolled": {},
-		"existing_node_id": {}, "panel_reachable": {},
+		"existing_node_id": {}, "panel_reachable": {}, "openrc": {},
 	}
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSuffix(line, "\r"), "=")
@@ -653,6 +667,10 @@ func parsePreflightOutput(output []byte) (*remotePreflight, error) {
 	if !ok || systemd != "yes" && systemd != "no" {
 		return nil, invalidPreflightFacts()
 	}
+	openrc, hasOpenRC := get("openrc")
+	if hasOpenRC && openrc != "yes" && openrc != "no" {
+		return nil, invalidPreflightFacts()
+	}
 	enrolled, ok := get("already_enrolled")
 	if !ok || enrolled != "yes" && enrolled != "no" {
 		return nil, invalidPreflightFacts()
@@ -677,7 +695,7 @@ func parsePreflightOutput(output []byte) (*remotePreflight, error) {
 			CpuCount: uint32(cpus), MemoryBytes: memory, DiskAvailableBytes: disk,
 			Systemd: systemd == "yes", AlreadyEnrolled: enrolled == "yes", PanelReachable: panelReachable == "yes",
 		},
-		nodeID: nodeID,
+		nodeID: nodeID, openrc: openrc == "yes",
 	}, nil
 }
 
@@ -703,12 +721,14 @@ if command -v bash >/dev/null 2>&1; then
       break
     fi
   done
+elif command -v nc >/dev/null 2>&1; then
+  if $probe_timeout nc -w 2 ` + shellQuote(host) + ` ` + shellQuote(port) + ` </dev/null >/dev/null 2>&1; then panel_reachable=yes; fi
 fi
 printf 'panel_reachable=%s\n' "$panel_reachable"
 `, nil
 }
 
-func supportedPreflight(facts *adminv1.NodePreflight) (string, string) {
+func supportedPreflight(facts *adminv1.NodePreflight, openrc ...bool) (string, string) {
 	if facts == nil {
 		return "", "ssh_preflight_failed"
 	}
@@ -720,10 +740,17 @@ func supportedPreflight(facts *adminv1.NodePreflight) (string, string) {
 		if !versionAtLeast(facts.Version, 12, 0) {
 			return "", "unsupported_os_version"
 		}
+	} else if facts.Distribution == "alpine" {
+		if !versionAtLeast(facts.Version, 3, 20) {
+			return "", "unsupported_os_version"
+		}
+		if len(openrc) == 0 || !openrc[0] {
+			return "", "systemd_required"
+		}
 	} else {
 		return "", "unsupported_os"
 	}
-	if !facts.Systemd {
+	if !facts.Systemd && facts.Distribution != "alpine" {
 		return "", "systemd_required"
 	}
 	if facts.CpuCount == 0 || facts.MemoryBytes < 256<<20 {

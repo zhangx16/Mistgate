@@ -3,8 +3,11 @@ package provision
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	adminv1 "github.com/mistgate/mistgate/gen/mistgate/admin/v1"
@@ -67,7 +70,7 @@ func TestPreflightVersionAndArchitectureRequirements(t *testing.T) {
 		code  string
 	}{
 		{"old Ubuntu", &adminv1.NodePreflight{Distribution: "ubuntu", Version: "20.04", Architecture: "x86_64", CpuCount: 2, MemoryBytes: 1 << 30, Systemd: true, PanelReachable: true}, "unsupported_os_version"},
-		{"unsupported system", &adminv1.NodePreflight{Distribution: "alpine", Version: "3.20", Architecture: "x86_64", CpuCount: 2, MemoryBytes: 1 << 30, Systemd: true, PanelReachable: true}, "unsupported_os"},
+		{"unsupported system", &adminv1.NodePreflight{Distribution: "centos", Version: "9", Architecture: "x86_64", CpuCount: 2, MemoryBytes: 1 << 30, Systemd: true, PanelReachable: true}, "unsupported_os"},
 		{"no systemd", &adminv1.NodePreflight{Distribution: "debian", Version: "12", Architecture: "x86_64", CpuCount: 2, MemoryBytes: 1 << 30, PanelReachable: true}, "systemd_required"},
 		{"unsupported arch", &adminv1.NodePreflight{Distribution: "debian", Version: "12", Architecture: "armv7l", CpuCount: 2, MemoryBytes: 1 << 30, Systemd: true, PanelReachable: true}, "unsupported_architecture"},
 	} {
@@ -107,5 +110,54 @@ func TestSSHFailureCodesDistinguishAuthenticationAndNetwork(t *testing.T) {
 	}
 	if got := publicPreflightCode(context.DeadlineExceeded); got != "ssh_preflight_timeout" {
 		t.Fatalf("preflight timeout job code = %q", got)
+	}
+}
+
+func TestAlpinePreflightRequiresVersionAndOpenRC(t *testing.T) {
+	facts := &adminv1.NodePreflight{Distribution: "alpine", Version: "3.22.2", Architecture: "x86_64", CpuCount: 1, MemoryBytes: 256 << 20, PanelReachable: true}
+	if arch, code := supportedPreflight(facts, true); arch != "amd64" || code != "" {
+		t.Fatalf("Alpine: %s/%s", arch, code)
+	}
+	if _, code := supportedPreflight(facts, false); code != "systemd_required" {
+		t.Fatalf("missing OpenRC: %s", code)
+	}
+	facts.Version = "3.19.9"
+	if _, code := supportedPreflight(facts, true); code != "unsupported_os_version" {
+		t.Fatalf("old Alpine: %s", code)
+	}
+}
+
+// Opt-in: the container has an isolated network and never changes host rules.
+func TestAlpineContainerPreflight(t *testing.T) {
+	container := os.Getenv("MISTGATE_ALPINE_TEST_CONTAINER")
+	if container == "" {
+		t.Skip("set MISTGATE_ALPINE_TEST_CONTAINER for the Alpine smoke test")
+	}
+	listen := exec.Command("docker", "exec", container, "sh", "-c", "nc -l -p 19001 >/dev/null 2>&1")
+	if err := listen.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer listen.Process.Kill()
+	// Wait for the listener without consuming its single accepted connection.
+	time.Sleep(200 * time.Millisecond)
+	command, err := preflightCommand("127.0.0.1:19001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("docker", "exec", "-i", container, "sh", "-s")
+	cmd.Stdin = strings.NewReader(command)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	facts, err := parsePreflightOutput(out)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if facts.facts.Distribution != "alpine" || facts.facts.Systemd || !facts.openrc {
+		t.Fatalf("unexpected init: %s", out)
+	}
+	if arch, code := supportedPreflight(facts.facts, facts.openrc); arch != "amd64" || code != "" {
+		t.Fatalf("unsupported Alpine: %s %s: %s", arch, code, out)
 	}
 }

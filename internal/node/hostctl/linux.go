@@ -100,7 +100,7 @@ type linuxHost struct {
 // hand-built expression tree for the same three lines. The price is that `nft` must be installed (it is on
 // Debian 12 and Ubuntu 22.04+); SetPortHops reports a clear error if it is not.
 func New(log *slog.Logger) Host {
-	return &linuxHost{
+	h := &linuxHost{
 		log:          log,
 		run:          execRunner,
 		sysctlFile:   SysctlFilePath,
@@ -115,6 +115,10 @@ func New(log *slog.Logger) Host {
 		resolvedFile:   defaultResolvedFile,
 		resolvConfFile: defaultResolvConfFile,
 	}
+	if _, err := exec.LookPath("systemctl"); err != nil {
+		h.journaldFile = ""
+	}
+	return h
 }
 
 // SetStateDir stores the approved-forwarding marker beside the node's persistent state.
@@ -278,15 +282,18 @@ func (h *linuxHost) ApplyBaseline(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	changed, err := writeIfChanged(h.journaldFile, journaldFileBody, 0o644)
-	if err != nil {
-		errs = append(errs, err)
-	} else if changed {
-		// journald only reads drop-ins on start; a restart is brief and only happens when the file changed.
-		if out, err := h.run(ctx, "", "systemctl", "restart", "systemd-journald"); err != nil {
-			errs = append(errs, fmt.Errorf("restart journald: %w: %s", err, bytes.TrimSpace(out)))
+	if h.journaldFile != "" {
+		changed, err := writeIfChanged(h.journaldFile, journaldFileBody, 0o644)
+		if err != nil {
+			errs = append(errs, err)
+		} else if changed {
+			// journald only reads drop-ins on start; a restart is brief and only happens when the file changed.
+			if out, err := h.run(ctx, "", "systemctl", "restart", "systemd-journald"); err != nil {
+				errs = append(errs, fmt.Errorf("restart journald: %w: %s", err, bytes.TrimSpace(out)))
+			}
 		}
 	}
+	var err error
 	// The SSH guard goes in last: its failure (no nft, no kernel support) must not skip the steps above.
 	h.fw.Lock()
 	h.sshPorts = h.detectSSHPorts(ctx)
@@ -411,13 +418,15 @@ func (h *linuxHost) Cleanup(ctx context.Context) error {
 		errs = append(errs, err)
 	}
 	// journald only reads drop-ins on start (ApplyBaseline): restart it when its drop-in really went, or the cap stays.
-	switch err := os.Remove(h.journaldFile); {
-	case err == nil:
-		if out, err := h.run(ctx, "", "systemctl", "restart", "systemd-journald"); err != nil {
-			errs = append(errs, fmt.Errorf("restart journald: %w: %s", err, bytes.TrimSpace(out)))
+	if h.journaldFile != "" {
+		switch err := os.Remove(h.journaldFile); {
+		case err == nil:
+			if out, err := h.run(ctx, "", "systemctl", "restart", "systemd-journald"); err != nil {
+				errs = append(errs, fmt.Errorf("restart journald: %w: %s", err, bytes.TrimSpace(out)))
+			}
+		case !os.IsNotExist(err):
+			errs = append(errs, err)
 		}
-	case !os.IsNotExist(err):
-		errs = append(errs, err)
 	}
 	errs = append(errs, h.undoResolver(ctx)) // the resolver fix, if one was ever applied
 	if h.v6 != nil {

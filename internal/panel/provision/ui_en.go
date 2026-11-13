@@ -254,7 +254,7 @@ var pageEnglish = map[string]string{
 	edgeTimeoutMessage:   "The panel got no answer from the SSH server in time. The panel connects from Cloudflare's network, not from your computer: SSH must accept inbound TCP from the internet (the hoster's and the server's firewall), not only from your IP. Open it for the install, or install the node with the manual command.",
 	edgeTimeoutLabel:     "The server did not answer in time. The panel connects from Cloudflare's network, not from your computer: SSH must accept inbound TCP from the internet, not only from your IP.",
 	"Сервер не ответил вовремя. Проверьте сеть и порт SSH.":                             "The server did not answer in time. Check the network and the SSH port.",
-	"Поддерживаются Ubuntu 22.04+ и Debian 12+.":                                        "Ubuntu 22.04+ and Debian 12+ are supported.",
+	"Поддерживаются Ubuntu 22.04+ и Debian 12+.":                                        "Ubuntu 22.04+, Debian 12+ and Alpine 3.20+ with OpenRC are supported.",
 	"Поддерживаются архитектуры amd64 и arm64.":                                         "The amd64 and arm64 architectures are supported.",
 	"На сервере не найден systemd.":                                                     "The server has no systemd.",
 	"Сервер не может подключиться к панели. Проверьте адрес панели и исходящий доступ.": "The server cannot reach the panel. Check the panel's address and the server's outbound access.",

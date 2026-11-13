@@ -73,7 +73,8 @@ func newPanel(st *store.Store, vlt *vault.Vault, authSvc *auth.Service, o panelO
 			AdminListen: o.in.AdminListen, RPID: o.in.RPID, RPOrigins: o.in.RPOrigins,
 			AgentSNI: o.in.AgentSNI, SubPrefix: o.in.SubPrefix, LinkPrefix: o.in.LinkPrefix,
 		},
-		DecoyDir: o.decoyDir, PanelAddr: o.panelAddr, DataDir: o.dataDir,
+		AlpineNodeBinaries: alpineNodeBinariesFromEnv(),
+		DecoyDir:           o.decoyDir, PanelAddr: o.panelAddr, DataDir: o.dataDir,
 		UpdateService: o.updateService, Title: o.title, HealthBlipWindow: healthBlipWindow, Ops: o.ops,
 	})
 	if err != nil {

@@ -151,7 +151,8 @@ type Config struct {
 	// client of the VPS edition.
 	SSHClient *nodeprovision.Client
 	// NodeBinaries is where an install gets the agent binary; nil: the update service (the signed bundle on disk).
-	NodeBinaries nodeprovision.BinarySource
+	NodeBinaries       nodeprovision.BinarySource
+	AlpineNodeBinaries nodeprovision.BinarySource
 	// OnAlertTransition, when set, sees every alert the health module opens or resolves, besides the Telegram announcement.
 	OnAlertTransition func(health.Transition)
 	// Ops is the VPS process's log ring and level (see OpsConfig); nil on the edge and in most tests.
